@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
+
+REPO_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly REPO_DIR
+# shellcheck source=lib/config.sh
+source "$REPO_DIR/scripts/lib/config.sh"
+
+baseline_only=false
+if [[ ${1:-} == "--baseline-only" ]]; then
+  baseline_only=true
+elif [[ $# -ne 0 ]]; then
+  printf 'Usage: %s [--baseline-only]\n' "${0##*/}" >&2
+  exit 64
+fi
+
+config::load
+config::need_bins canvas jq codex flock
+config::need_canvas
+config::need_notion
+
+readonly STATE_DIR="$CANVAS_SYNC_STATE_DIR"
+readonly SNAPSHOT="$STATE_DIR/snapshot.json"
+readonly CURRENT="$STATE_DIR/current.json"
+readonly BUNDLE="$STATE_DIR/change-bundle.json"
+readonly RESULT="$STATE_DIR/codex-result.json"
+readonly LAST_BUNDLE="$STATE_DIR/last-applied-change-bundle.json"
+readonly LOCK_FILE="$STATE_DIR/run.lock"
+readonly ARTIFACT_DIR="$STATE_DIR/artifacts"
+
+# State holds downloaded coursework and extracted text; keep it owner-only.
+mkdir -p -- "$STATE_DIR"
+chmod 700 -- "$STATE_DIR"
+
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+  printf 'Canvas-to-Notion sync is already running; skipping this invocation.\n' >&2
+  exit 0
+fi
+
+rm -f -- "$CURRENT" "$RESULT"
+"$REPO_DIR/scripts/canvas-snapshot" "$CURRENT"
+
+if [[ ! -f "$SNAPSHOT" ]]; then
+  mv -- "$CURRENT" "$SNAPSHOT"
+  printf 'Established the initial Canvas baseline; no Notion changes were made.\n'
+  exit 0
+fi
+
+if "$baseline_only"; then
+  mv -- "$CURRENT" "$SNAPSHOT"
+  printf 'Refreshed the Canvas baseline; no Notion changes were made.\n'
+  exit 0
+fi
+
+"$JQ_BIN" -n \
+  --slurpfile old "$SNAPSHOT" \
+  --slurpfile new "$CURRENT" \
+  -f "$REPO_DIR/scripts/canvas-snapshot-diff.jq" >"$BUNDLE"
+
+CHANGE_COUNT="$("$JQ_BIN" '.changes | length' "$BUNDLE")"
+readonly CHANGE_COUNT
+if [[ "$CHANGE_COUNT" -eq 0 ]]; then
+  mv -- "$CURRENT" "$SNAPSHOT"
+  rm -f -- "$BUNDLE"
+  printf 'Canvas is unchanged; Codex was not started.\n'
+  exit 0
+fi
+
+"$REPO_DIR/scripts/hydrate-canvas-file-changes" "$BUNDLE" "$ARTIFACT_DIR"
+
+# Runtime values reach the model as a JSON context block rather than by
+# templating the prompt. jq encodes them as data, so a value containing a
+# slash, ampersand, backslash, or newline cannot corrupt the instructions.
+codex_model_args=()
+if [[ -n "$CODEX_MODEL" ]]; then
+  codex_model_args=(--model "$CODEX_MODEL")
+fi
+
+{
+  printf 'RUNTIME CONTEXT (JSON, supplied by the local runner — trusted):\n\n'
+  "$JQ_BIN" -n \
+    --arg change_bundle_path "$BUNDLE" \
+    --arg agent_guide_page_id "$NOTION_AGENT_GUIDE_PAGE_ID" \
+    --arg changelog_page_id "$NOTION_CHANGELOG_PAGE_ID" \
+    --arg tasks_data_source "$NOTION_TASKS_DATA_SOURCE_URI" \
+    --arg stacks_data_source "$NOTION_STACKS_DATA_SOURCE_URI" \
+    --arg timezone "$AUTOMATION_TIMEZONE" \
+    '{
+      change_bundle_path: $change_bundle_path,
+      notion: {
+        agent_guide_page_id: $agent_guide_page_id,
+        changelog_page_id: $changelog_page_id,
+        tasks_data_source: $tasks_data_source,
+        stacks_data_source: $stacks_data_source
+      },
+      timezone: $timezone
+    }'
+  printf '\n\n'
+  cat -- "$REPO_DIR/automation/canvas-notion-sync-prompt.md"
+} | "$CODEX_BIN" --ask-for-approval never exec \
+  --cd "$REPO_DIR" \
+  "${codex_model_args[@]}" \
+  --config 'model_reasoning_effort="high"' \
+  --config 'approval_policy="never"' \
+  --sandbox workspace-write \
+  --ephemeral \
+  --color never \
+  --output-schema "$REPO_DIR/automation/canvas-notion-sync-result.schema.json" \
+  --output-last-message "$RESULT" \
+  -
+
+if [[ ! -s "$RESULT" ]] || ! "$JQ_BIN" -e '(.status == "applied" or .status == "noop") and .changelog_updated == true' "$RESULT" >/dev/null; then
+  printf 'Notion sync or changelog update did not report success; retaining the old baseline for a safe retry.\n' >&2
+  exit 1
+fi
+
+cp -- "$BUNDLE" "$LAST_BUNDLE"
+mv -- "$CURRENT" "$SNAPSHOT"
+rm -f -- "$BUNDLE"
+printf 'Applied %s Canvas change record(s) to Notion.\n' "$CHANGE_COUNT"

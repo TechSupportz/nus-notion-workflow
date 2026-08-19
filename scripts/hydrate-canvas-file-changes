@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
+
+REPO_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly REPO_DIR
+# shellcheck source=lib/config.sh
+source "$REPO_DIR/scripts/lib/config.sh"
+
+if [[ $# -ne 2 ]]; then
+  printf 'Usage: %s CHANGE_BUNDLE.json ARTIFACT_DIR\n' "${0##*/}" >&2
+  exit 64
+fi
+
+config::load
+config::need_bins canvas jq unzip strings
+
+readonly BUNDLE=$1
+readonly ARTIFACT_DIR=$2
+readonly MAX_DOWNLOAD_BYTES="$CANVAS_SYNC_MAX_FILE_BYTES"
+readonly MAX_EXTRACTED_BYTES="$CANVAS_SYNC_MAX_EXTRACTED_BYTES"
+
+mkdir -p -- "$ARTIFACT_DIR"
+chmod 700 -- "$ARTIFACT_DIR"
+
+attach_artifact() {
+  local key=$1
+  local file_path=$2
+  local text_path=$3
+  local note=$4
+  local updated
+  updated="$(mktemp "${BUNDLE}.XXXXXX")"
+  "$JQ_BIN" \
+    --arg key "$key" \
+    --arg file_path "$file_path" \
+    --arg text_path "$text_path" \
+    --arg note "$note" '
+      (.changes[] | select(.key == $key) | .artifact) = {
+        local_path: $file_path,
+        extracted_text_path: (if $text_path == "" then null else $text_path end),
+        note: $note
+      }
+    ' "$BUNDLE" >"$updated"
+  mv -- "$updated" "$BUNDLE"
+}
+
+while IFS=$'\t' read -r key course_id file_id filename content_type size; do
+  if [[ "$size" -gt "$MAX_DOWNLOAD_BYTES" ]]; then
+    attach_artifact "$key" "" "" \
+      "Not downloaded because the file exceeds the configured size limit of $MAX_DOWNLOAD_BYTES bytes."
+    continue
+  fi
+
+  safe_name="$(printf '%s' "$filename" | sed 's/[^A-Za-z0-9._-]/_/g')"
+  [[ -n "$safe_name" ]] || safe_name="canvas-file-$file_id"
+  file_path="$ARTIFACT_DIR/$course_id-$file_id-$safe_name"
+  text_path=""
+  note="Downloaded with Canvas CLI; no text extractor was available for this file type."
+
+  if ! "$CANVAS_BIN" ${CANVAS_INSTANCE_ARGS[@]+"${CANVAS_INSTANCE_ARGS[@]}"} \
+    files download "$file_id" \
+    --destination "$file_path" --no-cache --quiet; then
+    rm -f -- "$file_path"
+    attach_artifact "$key" "" "" \
+      "Download failed; the Canvas change remains visible without a local artifact."
+    continue
+  fi
+
+  extension="${safe_name##*.}"
+  extension="$(printf '%s' "$extension" | tr '[:upper:]' '[:lower:]')"
+  raw_text="$(mktemp "$ARTIFACT_DIR/.extract.XXXXXX")"
+  cleaned_text="$(mktemp "$ARTIFACT_DIR/.clean.XXXXXX")"
+
+  case "$extension:$content_type" in
+    docx:*|*:application/vnd.openxmlformats-officedocument.wordprocessingml.document)
+      unzip -p "$file_path" word/document.xml >"$raw_text"
+      sed \
+        -e 's#</w:tc>#\t#g' \
+        -e 's#</w:tr>#\n#g' \
+        -e 's#<w:tab[^>]*/>#\t#g' \
+        -e 's#</w:p>#\n#g' \
+        -e 's#<[^>]*>##g' \
+        -e 's/&amp;/\&/g' \
+        -e 's/&lt;/</g' \
+        -e 's/&gt;/>/g' \
+        -e 's/&quot;/"/g' \
+        -e "s/&apos;/'/g" \
+        "$raw_text" >"$cleaned_text"
+      note="Downloaded with Canvas CLI and extracted from word/document.xml; table cells and rows are preserved as tabs and newlines."
+      ;;
+    pptx:*|xlsx:*|*:application/vnd.openxmlformats-officedocument.presentationml.presentation|*:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet)
+      unzip -p "$file_path" '*.xml' >"$raw_text"
+      sed \
+        -e 's#</a:tr>#\n#g' \
+        -e 's#</row>#\n#g' \
+        -e 's#</c>#\t#g' \
+        -e 's#</a:p>#\n#g' \
+        -e 's#<[^>]*>##g' \
+        -e 's/&amp;/\&/g' \
+        -e 's/&lt;/</g' \
+        -e 's/&gt;/>/g' \
+        "$raw_text" >"$cleaned_text"
+      note="Downloaded with Canvas CLI and extracted from the Office XML payload."
+      ;;
+    pdf:*|*:application/pdf)
+      strings -n 6 "$file_path" >"$cleaned_text"
+      note="Downloaded with Canvas CLI; extracted text is a best-effort PDF strings view and may be incomplete."
+      ;;
+    txt:*|md:*|csv:*|tsv:*|json:*|xml:*|html:*|htm:*|*:text/*|*:application/json|*:application/xml)
+      sed -e 's#<[^>]*># #g' "$file_path" >"$cleaned_text"
+      note="Downloaded with Canvas CLI and stored as plain extracted text."
+      ;;
+  esac
+
+  if [[ -s "$cleaned_text" ]]; then
+    text_path="${file_path}.txt"
+    head -c "$MAX_EXTRACTED_BYTES" "$cleaned_text" >"$text_path"
+  fi
+  rm -f -- "$raw_text" "$cleaned_text"
+  attach_artifact "$key" "$file_path" "$text_path" "$note"
+done < <(
+  "$JQ_BIN" -r '
+      .changes[]
+      | select(.resource == "file" and .after != null)
+      | [
+          .key,
+          (.course.id | tostring),
+          (.after.id | tostring),
+          (.after.filename // .after.display_name // ("canvas-file-" + (.after.id | tostring))),
+          (.after["content-type"] // "application/octet-stream"),
+          ((.after.size // 0) | tostring)
+        ]
+      | @tsv
+    ' "$BUNDLE"
+)

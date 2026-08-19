@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "canvas-cli": {
+      "source": "jjuanrivvera/canvas-cli",
+      "sourceType": "github",
+      "skillPath": "skills/canvas-cli/SKILL.md",
+      "computedHash": "52af34416a0885b18bd7a384a0a211bdb792ac03d99d24d66c51aeef7b457622"
+    }
+  }
+}

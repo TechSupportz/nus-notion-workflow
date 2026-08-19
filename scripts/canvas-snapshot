@@ -1,0 +1,235 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
+
+REPO_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly REPO_DIR
+# shellcheck source=lib/config.sh
+source "$REPO_DIR/scripts/lib/config.sh"
+
+usage() {
+  printf 'Usage: %s OUTPUT.json\n' "${0##*/}" >&2
+}
+
+if [[ $# -ne 1 ]]; then
+  usage
+  exit 64
+fi
+
+config::load
+config::need_bins canvas jq unzip
+config::need_canvas
+
+readonly OUTPUT=$1
+OUTPUT_DIR="$(dirname -- "$OUTPUT")"
+readonly OUTPUT_DIR
+mkdir -p -- "$OUTPUT_DIR"
+RUN_DIR="$(mktemp -d "$OUTPUT_DIR/.canvas-snapshot.XXXXXX")"
+readonly RUN_DIR
+trap 'rm -rf -- "$RUN_DIR"' EXIT
+
+# The `[@]+` guard keeps an empty CANVAS_INSTANCE_ARGS from tripping `set -u`
+# on Bash before 4.4, where expanding an empty array counts as unbound.
+canvas_json() {
+  "$CANVAS_BIN" ${CANVAS_INSTANCE_ARGS[@]+"${CANVAS_INSTANCE_ARGS[@]}"} "$@" \
+    --no-cache --quiet -o json
+}
+
+# Canvas reports "no access" in several shapes depending on the endpoint. Treat
+# those as an unavailable resource rather than a hard failure, so a course that
+# hides its files or discussions still produces a usable snapshot.
+canvas_denied_error() {
+  grep -Eqi 'not found|forbidden|permission|status.?403|status.?404' -- "$1"
+}
+
+canvas_optional_json() {
+  local output=$1
+  local status_file=$2
+  local error_file=$3
+  shift 3
+
+  if canvas_json "$@" >"$output" 2>"$error_file"; then
+    printf 'available' >"$status_file"
+    return 0
+  fi
+
+  if canvas_denied_error "$error_file"; then
+    printf '[]\n' >"$output"
+    printf 'not_available' >"$status_file"
+    return 0
+  fi
+
+  sed -n '1,120p' "$error_file" >&2
+  return 1
+}
+
+canvas_json courses list \
+  --enrollment-type student \
+  --enrollment-state active \
+  --include syllabus_body,term >"$RUN_DIR/courses.raw.json"
+
+if [[ -n "$CANVAS_SYNC_COURSE_IDS" ]]; then
+  selection_description="course IDs $CANVAS_SYNC_COURSE_IDS"
+  "$JQ_BIN" --arg ids "$CANVAS_SYNC_COURSE_IDS" '
+    ($ids | split(",") | map(gsub("^\\s+|\\s+$"; "") | tonumber)) as $wanted
+    | map(select(.id as $id | $wanted | index($id)))
+  ' "$RUN_DIR/courses.raw.json" >"$RUN_DIR/courses.json"
+else
+  selection_description="term name matching /$CANVAS_TERM_NAME_REGEX/i"
+  "$JQ_BIN" --arg pattern "$CANVAS_TERM_NAME_REGEX" '
+    map(select(
+      .workflow_state == "available"
+      and (.term.name // "" | test($pattern; "i"))
+    ))
+  ' "$RUN_DIR/courses.raw.json" >"$RUN_DIR/courses.json"
+fi
+readonly selection_description
+
+if [[ $("$JQ_BIN" 'length' "$RUN_DIR/courses.json") -eq 0 ]]; then
+  {
+    printf 'No Canvas courses matched %s.\n' "$selection_description"
+    printf 'Canvas returned %s active student enrolment(s):\n' \
+      "$("$JQ_BIN" 'length' "$RUN_DIR/courses.raw.json")"
+    "$JQ_BIN" -r '
+      .[] | "  \(.id)  \(.course_code // .name // "?")  term=\(.term.name // "none")  state=\(.workflow_state // "?")"
+    ' "$RUN_DIR/courses.raw.json" >&2
+    printf '\nAdjust CANVAS_TERM_NAME_REGEX or CANVAS_SYNC_COURSE_IDS in config.local.sh.\n'
+    printf 'Refusing to replace the snapshot.\n'
+  } >&2
+  exit 65
+fi
+
+while IFS= read -r course_id; do
+  course_dir="$RUN_DIR/course-$course_id"
+  mkdir -p -- "$course_dir"
+
+  canvas_optional_json \
+    "$course_dir/assignments.json" "$course_dir/assignments.status" "$course_dir/assignments.error" \
+    assignments list --course-id "$course_id" --include submission
+  canvas_optional_json \
+    "$course_dir/modules.json" "$course_dir/modules.status" "$course_dir/modules.error" \
+    modules list --course-id "$course_id" --include items,content_details
+  canvas_optional_json \
+    "$course_dir/pages.json" "$course_dir/pages.status" "$course_dir/pages.error" \
+    pages list --course-id "$course_id" --include body
+  canvas_optional_json \
+    "$course_dir/files.json" "$course_dir/files.status" "$course_dir/files.error" \
+    files list --course-id "$course_id"
+
+  # Canvas omits files that are only linked from page bodies, which can hide
+  # syllabus documents entirely. Resolve those file IDs explicitly.
+  : >"$course_dir/linked-files.jsonl"
+  while IFS= read -r linked_file_id; do
+    if ! "$JQ_BIN" -e --argjson id "$linked_file_id" \
+      'any(.id == $id)' "$course_dir/files.json" >/dev/null; then
+      linked_error="$course_dir/linked-file-$linked_file_id.error"
+      if ! canvas_json files get "$linked_file_id" \
+        >>"$course_dir/linked-files.jsonl" 2>"$linked_error"; then
+        if canvas_denied_error "$linked_error"; then
+          "$JQ_BIN" -n --argjson id "$linked_file_id" \
+            '{id: $id, filename: ("Canvas linked file " + ($id | tostring)), unavailable: true}' \
+            >>"$course_dir/linked-files.jsonl"
+        else
+          sed -n '1,120p' "$linked_error" >&2
+          exit 1
+        fi
+      fi
+    fi
+  done < <(
+    "$JQ_BIN" -r '
+      .[].body // empty
+      | scan("(?:/files/|file_id=)([0-9]+)")
+      | .[0]
+    ' "$course_dir/pages.json" | sort -un
+  )
+  "$JQ_BIN" -s '.[0] + .[1:] | unique_by(.id)' \
+    "$course_dir/files.json" "$course_dir/linked-files.jsonl" \
+    >"$course_dir/files.merged.json"
+  mv -- "$course_dir/files.merged.json" "$course_dir/files.json"
+
+  canvas_optional_json \
+    "$course_dir/discussions.json" "$course_dir/discussions.status" "$course_dir/discussions.error" \
+    discussions list --course-id "$course_id" --include all_dates
+done < <("$JQ_BIN" -r 'sort_by(.id)[] | .id' "$RUN_DIR/courses.json")
+
+# jq cannot dynamically open filenames supplied as data. Build one compact course
+# record at a time, then assemble and sort the final deterministic snapshot.
+: >"$RUN_DIR/course-records.jsonl"
+while IFS= read -r course_id; do
+  "$JQ_BIN" -n \
+    --slurpfile course "$RUN_DIR/courses.json" \
+    --slurpfile assignments "$RUN_DIR/course-$course_id/assignments.json" \
+    --slurpfile modules "$RUN_DIR/course-$course_id/modules.json" \
+    --slurpfile pages "$RUN_DIR/course-$course_id/pages.json" \
+    --slurpfile files "$RUN_DIR/course-$course_id/files.json" \
+    --slurpfile discussions "$RUN_DIR/course-$course_id/discussions.json" \
+    --rawfile assignments_status "$RUN_DIR/course-$course_id/assignments.status" \
+    --rawfile modules_status "$RUN_DIR/course-$course_id/modules.status" \
+    --rawfile pages_status "$RUN_DIR/course-$course_id/pages.status" \
+    --rawfile files_status "$RUN_DIR/course-$course_id/files.status" \
+    --rawfile discussions_status "$RUN_DIR/course-$course_id/discussions.status" \
+    --argjson course_id "$course_id" '
+      def assignment:
+        {id, name, description, created_at, updated_at, due_at, unlock_at, lock_at,
+         points_possible, grading_type, submission_types, allowed_extensions, published,
+         workflow_state, html_url, has_submitted_submissions,
+         submission: (if .submission == null then null else
+           (.submission | {id, attempt, workflow_state, submitted_at, graded_at,
+                            score, grade, late, missing, excused}) end)};
+      def module_item:
+        {id, title, position, type, content_id, html_url, url, published,
+         completion_requirement, content_details};
+      def module_record:
+        {id, name, position, unlock_at, require_sequential_progress, published, state,
+         items: ((.items // []) | map(module_item) | sort_by(.id))};
+      def page:
+        {page_id, url, title, created_at, updated_at, published, front_page, html_url, body};
+      def file:
+        {id, uuid, folder_id, display_name, filename, size,
+         "content-type": .["content-type"], created_at, updated_at, modified_at, md5,
+         locked, hidden, unlock_at, lock_at, unavailable};
+      def attachment:
+        {id, display_name, filename, size, "content-type": .["content-type"],
+         created_at, updated_at};
+      def discussion:
+        {id, title, message, html_url, posted_at, last_reply_at, discussion_type,
+         published, locked, lock_at, delayed_post_at, assignment_id, position,
+         workflow_state,
+         attachments: ((.attachments // []) | map(attachment) | sort_by(.id))};
+
+      ($course[0] | map(select(.id == $course_id)) | first) as $c
+      | {
+          id: $c.id,
+          name: $c.name,
+          course_code: $c.course_code,
+          workflow_state: $c.workflow_state,
+          default_view: $c.default_view,
+          syllabus_body: $c.syllabus_body,
+          term: ($c.term | {id, name, start_at, end_at}),
+          availability: {
+            assignments: $assignments_status,
+            modules: $modules_status,
+            pages: $pages_status,
+            files: $files_status,
+            discussions: $discussions_status
+          },
+          assignments: ($assignments[0] | map(assignment) | sort_by(.id)),
+          modules: ($modules[0] | map(module_record) | sort_by(.id)),
+          pages: ($pages[0] | map(page) | sort_by(.url)),
+          files: ($files[0] | map(file) | sort_by(.id)),
+          discussions: ($discussions[0] | map(discussion) | sort_by(.id))
+        }
+    ' >>"$RUN_DIR/course-records.jsonl"
+done < <("$JQ_BIN" -r 'sort_by(.id)[] | .id' "$RUN_DIR/courses.json")
+
+"$JQ_BIN" -sS \
+  --arg captured_at "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+  '({schema_version: 1, captured_at: $captured_at, courses: sort_by(.id)}
+    | walk(
+        if type == "string" and startswith("0001-01-01") then null
+        else .
+        end
+      ))' \
+  "$RUN_DIR/course-records.jsonl" >"$RUN_DIR/snapshot.json"
+
+mv -- "$RUN_DIR/snapshot.json" "$OUTPUT"
