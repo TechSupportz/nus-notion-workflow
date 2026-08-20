@@ -99,11 +99,10 @@ fi
     }'
   printf '\n\n'
   cat -- "$REPO_DIR/automation/canvas-notion-sync-prompt.md"
-} | "$CODEX_BIN" --ask-for-approval never exec \
+} | "$CODEX_BIN" --approve-for-me exec \
   --cd "$REPO_DIR" \
   "${codex_model_args[@]}" \
   --config 'model_reasoning_effort="high"' \
-  --config 'approval_policy="never"' \
   --sandbox workspace-write \
   --ephemeral \
   --color never \

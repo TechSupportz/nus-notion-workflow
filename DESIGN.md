@@ -210,8 +210,10 @@ Archived Stacks remain accessible through the full Stacks database.
 ## Changelog
 
 The Changelog is an append-only child page of the workspace home page. It records concrete changes
-to the Notion system and the Canvas → Notion automation, organised beneath `YYYY-MM-DD` headings
-using calendar dates in the configured timezone.
+to the Notion system and the Canvas → Notion automation. Each configured-timezone calendar date is
+a `YYYY-MM-DD` toggle heading whose children contain that day's entries. Date toggles are ordered
+from most recent to least recent; new dates are inserted directly below **Daily changelog**, while
+later runs on an existing date are added inside that date's toggle.
 
 Each automation run triggered by a Canvas diff records:
 
@@ -219,6 +221,11 @@ Each automation run triggered by a Canvas diff records:
 - safe Notion changes applied;
 - useful no-op decisions; and
 - deletion-dependent changes that were deferred.
+
+The Canvas snapshot covers assignments, quizzes, announcements, modules, pages, files, and
+discussions for every current subject. Announcements are treated as a first-class source: inspect
+their content for actionable work, deadline changes, preparation instructions, and durable course
+reference information rather than recording only their titles.
 
 The top-level **Pending approval** section is the actionable queue for destructive work. Each
 unchecked item identifies the exact target, proposed deletion, reason, and consequence. Equivalent
@@ -229,6 +236,13 @@ completes it, the item is checked off and retained as history rather than erased
 Every diff-triggered run must fetch and verify its Changelog entry. The Canvas baseline advances
 only after all safe changes and the Changelog write succeed; otherwise the old baseline is retained
 for an idempotent retry.
+
+The user has explicitly authorised automatic approval review for the headless Codex process. It
+remains inside the `workspace-write` sandbox, and the Notion app has an `Allow all actions`
+override so safe synchronization writes can complete without an interactive prompt. This does not
+authorise deletion: every destructive Notion change is still deferred to **Pending approval**.
+Locked or otherwise unavailable Canvas files remain in the change bundle with metadata and an
+explanatory artifact note instead of failing the run.
 
 ## Agent Behaviour
 

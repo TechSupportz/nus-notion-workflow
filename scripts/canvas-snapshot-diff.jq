@@ -5,11 +5,25 @@ def rows:
       key: ("course:" + ($course.id | tostring)),
       course: {id: $course.id, course_code: $course.course_code, name: $course.name},
       id: $course.id,
-      value: ($course | del(.assignments, .modules, .pages, .files, .discussions))
+      value: ($course | del(.assignments, .quizzes, .announcements, .modules, .pages, .files, .discussions))
     }),
     ($course.assignments[]? | {
       resource: "assignment",
       key: ("course:" + ($course.id | tostring) + ":assignment:" + (.id | tostring)),
+      course: {id: $course.id, course_code: $course.course_code, name: $course.name},
+      id,
+      value: .
+    }),
+    ($course.quizzes[]? | {
+      resource: "quiz",
+      key: ("course:" + ($course.id | tostring) + ":quiz:" + (.id | tostring)),
+      course: {id: $course.id, course_code: $course.course_code, name: $course.name},
+      id,
+      value: .
+    }),
+    ($course.announcements[]? | {
+      resource: "announcement",
+      key: ("course:" + ($course.id | tostring) + ":announcement:" + (.id | tostring)),
       course: {id: $course.id, course_code: $course.course_code, name: $course.name},
       id,
       value: .
@@ -49,7 +63,7 @@ def rows:
 | ($new | [rows] | INDEX(.key)) as $after
 | (($before | keys) + ($after | keys) | unique) as $keys
 | {
-    schema_version: 1,
+    schema_version: 2,
     generated_at: $new.captured_at,
     previous_captured_at: $old.captured_at,
     current_captured_at: $new.captured_at,

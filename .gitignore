@@ -1,13 +1,17 @@
 # Local configuration — real Notion IDs, Canvas instance, machine paths.
-config.local.sh
+/config.local.sh
 
 # Local course notes and any other private agent context.
-AGENTS.local.md
+/AGENTS.local.md
 
-# Generated systemd units.
-automation/*.service
-automation/*.timer
+# Generated systemd units. Keep the committed *.in templates tracked.
+/automation/canvas-notion-sync.service
+/automation/canvas-notion-sync.timer
 
 # Editor and OS debris.
 .DS_Store
 *.swp
+*.swo
+*~
+/.idea/
+/.vscode/

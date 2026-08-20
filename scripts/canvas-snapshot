@@ -107,6 +107,12 @@ while IFS= read -r course_id; do
     "$course_dir/assignments.json" "$course_dir/assignments.status" "$course_dir/assignments.error" \
     assignments list --course-id "$course_id" --include submission
   canvas_optional_json \
+    "$course_dir/quizzes.json" "$course_dir/quizzes.status" "$course_dir/quizzes.error" \
+    quizzes list --course-id "$course_id"
+  canvas_optional_json \
+    "$course_dir/announcements.json" "$course_dir/announcements.status" "$course_dir/announcements.error" \
+    announcements list --course-id "$course_id"
+  canvas_optional_json \
     "$course_dir/modules.json" "$course_dir/modules.status" "$course_dir/modules.error" \
     modules list --course-id "$course_id" --include items,content_details
   canvas_optional_json \
@@ -159,11 +165,15 @@ while IFS= read -r course_id; do
   "$JQ_BIN" -n \
     --slurpfile course "$RUN_DIR/courses.json" \
     --slurpfile assignments "$RUN_DIR/course-$course_id/assignments.json" \
+    --slurpfile quizzes "$RUN_DIR/course-$course_id/quizzes.json" \
+    --slurpfile announcements "$RUN_DIR/course-$course_id/announcements.json" \
     --slurpfile modules "$RUN_DIR/course-$course_id/modules.json" \
     --slurpfile pages "$RUN_DIR/course-$course_id/pages.json" \
     --slurpfile files "$RUN_DIR/course-$course_id/files.json" \
     --slurpfile discussions "$RUN_DIR/course-$course_id/discussions.json" \
     --rawfile assignments_status "$RUN_DIR/course-$course_id/assignments.status" \
+    --rawfile quizzes_status "$RUN_DIR/course-$course_id/quizzes.status" \
+    --rawfile announcements_status "$RUN_DIR/course-$course_id/announcements.status" \
     --rawfile modules_status "$RUN_DIR/course-$course_id/modules.status" \
     --rawfile pages_status "$RUN_DIR/course-$course_id/pages.status" \
     --rawfile files_status "$RUN_DIR/course-$course_id/files.status" \
@@ -176,6 +186,13 @@ while IFS= read -r course_id; do
          submission: (if .submission == null then null else
            (.submission | {id, attempt, workflow_state, submitted_at, graded_at,
                             score, grade, late, missing, excused}) end)};
+      def quiz:
+        {id, title, description, quiz_type, assignment_id, published,
+         created_at, updated_at, unlock_at, due_at, lock_at, time_limit,
+         allowed_attempts, html_url, question_count, points_possible};
+      def announcement:
+        {id, title, message, html_url, posted_at, last_reply_at,
+         delayed_post_at, published, locked, lock_at, workflow_state};
       def module_item:
         {id, title, position, type, content_id, html_url, url, published,
          completion_requirement, content_details};
@@ -208,12 +225,16 @@ while IFS= read -r course_id; do
           term: ($c.term | {id, name, start_at, end_at}),
           availability: {
             assignments: $assignments_status,
+            quizzes: $quizzes_status,
+            announcements: $announcements_status,
             modules: $modules_status,
             pages: $pages_status,
             files: $files_status,
             discussions: $discussions_status
           },
           assignments: ($assignments[0] | map(assignment) | sort_by(.id)),
+          quizzes: ($quizzes[0] | map(quiz) | sort_by(.id)),
+          announcements: ($announcements[0] | map(announcement) | sort_by(.id)),
           modules: ($modules[0] | map(module_record) | sort_by(.id)),
           pages: ($pages[0] | map(page) | sort_by(.url)),
           files: ($files[0] | map(file) | sort_by(.id)),
@@ -224,7 +245,7 @@ done < <("$JQ_BIN" -r 'sort_by(.id)[] | .id' "$RUN_DIR/courses.json")
 
 "$JQ_BIN" -sS \
   --arg captured_at "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
-  '({schema_version: 1, captured_at: $captured_at, courses: sort_by(.id)}
+  '({schema_version: 2, captured_at: $captured_at, courses: sort_by(.id)}
     | walk(
         if type == "string" and startswith("0001-01-01") then null
         else .

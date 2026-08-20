@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 TimeoutStartSec=45min
-WorkingDirectory="@REPO_DIR@"
+WorkingDirectory=@REPO_DIR@
 ExecStart="@REPO_DIR@/scripts/run-canvas-notion-sync"
 Nice=10
 IOSchedulingClass=best-effort

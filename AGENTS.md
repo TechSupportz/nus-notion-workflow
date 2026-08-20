@@ -59,12 +59,20 @@ Two rules bite most often in practice:
 - **Append, don't replace.** Task and Stack page bodies carry hand-written notes. Use
   `insert_content` or a targeted `update_content`; `replace_content` destroys them.
 
+Keep Changelog dates as `YYYY-MM-DD` toggle headings ordered from most recent to least recent. Put
+each day's details inside its toggle; insert a new date directly below `Daily changelog` and add
+later same-day runs inside the existing date toggle.
+
 Removing a `<page>` tag from a parent's content deletes that child page, so when reordering child
 pages, leave the tag alone unless you intend the deletion.
 
 Never delete or archive Notion content without the user's explicit permission for that exact
 deletion. Unattended automation cannot obtain that permission: it must skip the destructive change
 and append it to the Changelog's `Pending approval` section for a later user-directed agent.
+
+The Canvas → Notion service is explicitly authorised to use Codex automatic approval review inside
+the `workspace-write` sandbox, with a Notion-specific `Allow all actions` permission. This permits
+safe headless writes only; it does not override the deletion rule above.
 
 ## Canvas
 
@@ -78,6 +86,11 @@ and teacher commands return 403. Stick to reads plus the user's own submissions.
 
 Each academic module is a **Stack** whose page body mirrors Canvas reference material, while
 anything actionable becomes a **Task** related to that Stack.
+
+For every current subject, sync the dedicated Canvas quizzes and announcements endpoints alongside
+assignments, modules, pages, files, and discussions. Read announcement content for actionable work,
+deadline changes, preparation instructions, and durable course references; do not treat an
+announcement as title-only metadata.
 
 Canvas is a weaker source than it looks, and these are the traps:
 
