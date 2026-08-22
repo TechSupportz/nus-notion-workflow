@@ -33,7 +33,8 @@ names rather than this cached reference.
 - **Miscellaneous** — a Task with no Stack; this is a valid final state.
 - **Needs Setup** — a Task whose Type and Due Date conflict, waiting on a human decision.
 - **Yeeted** — intentionally abandoned work retained in history.
-- **Starting to Matter** — an unfinished Deadline due within seven days.
+- **Closing In** — an unfinished Action or Deadline due within three days.
+- **Starting to Matter** — an unfinished Deadline due on days four through seven.
 - **Waiting** — progress depends on something else.
 - **Doing** — current activity.
 - **Unfinished** — Status `To do`, `Waiting`, or `Doing`.
@@ -136,15 +137,17 @@ authorised item is completed, check it off and retain it as history.
 3. Valid Side Quest → `Side Quest`
 4. Due before today → `Overdue`
 5. Due today → `Due Today`
-6. Deadline due tomorrow through day 7 → `Starting to Matter`
-7. Action due tomorrow through day 14, or Deadline due on days 8–14 → `Upcoming`
-8. Anything else → blank
+6. Action or Deadline due tomorrow through day 3 → `Closing In`
+7. Deadline due on days 4–7 → `Starting to Matter`
+8. Action due on days 4–14, or Deadline due on days 8–14 → `Upcoming`
+9. Anything else → blank
 
 Completed is separate. It shows only Done Tasks where `Show in Completed` returns `Completed`.
 
 ## Homepage presentation
 
-- Today is one Gallery covering Overdue, Due Today, and Starting to Matter, sorted by Due Date.
+- Today is one Gallery covering Overdue, Due Today, Closing In, and Starting to Matter, sorted by
+  Due Date.
 - Upcoming is a Gallery grouped by Stack and sorted by Due Date.
 - Today and Upcoming use Medium Compact cards with no preview. Show Name, Stack, Due Date, and
   Status; hide the data-source title and page icon, wrap content, open in Center peek, and load 25.

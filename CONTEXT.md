@@ -40,8 +40,12 @@ _Avoid_: Invalid, broken
 A terminal status for intentionally abandoned Tasks. Yeeted Tasks remain in history but are hidden from normal working views.
 _Avoid_: Dropped, cancelled, deleted
 
+**Closing In**:
+An unfinished Action or Deadline whose Due Date is within the next three days, near enough that it should influence what happens now.
+_Avoid_: Urgent, priority, critical
+
 **Starting to Matter**:
-An unfinished Deadline whose Due Date is within the next seven days, shown early enough to invite preparation.
+An unfinished Deadline whose Due Date falls on the fourth through seventh day from today, shown early enough to invite preparation.
 _Avoid_: Urgent, priority
 
 **Waiting**:

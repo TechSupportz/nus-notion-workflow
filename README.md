@@ -5,9 +5,9 @@ sync with [Canvas LMS](https://www.instructure.com/canvas).
 
 Everything actionable becomes a **Task** (an Action, a Deadline, or a Side Quest), optionally
 grouped under a **Stack**. A Notion homepage classifies unfinished Tasks into Overdue, Due Today,
-Starting to Matter, Upcoming, and Side Quests so the question "what should I do now?" has a visible
-answer. [DESIGN.md](DESIGN.md) is the full specification; [CONTEXT.md](CONTEXT.md) defines the
-vocabulary.
+Closing In, Starting to Matter, Upcoming, and Side Quests so the question "what should I do now?"
+has a visible answer. [DESIGN.md](DESIGN.md) is the full specification; [CONTEXT.md](CONTEXT.md)
+defines the vocabulary.
 
 On the configured schedule — four times a day by default — the automation snapshots your Canvas
 courses, diffs against the previous snapshot,

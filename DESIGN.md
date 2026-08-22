@@ -146,23 +146,30 @@ Notion cannot dynamically remove the surrounding section heading when a linked v
 
 ### Today
 
-Today is a suggestion surface containing three formula classifications:
+Today is a suggestion surface containing four formula classifications:
 
 1. **Overdue** — unfinished, correctly configured Actions and Deadlines whose Due Date has passed.
 2. **Due Today** — unfinished, correctly configured Actions and Deadlines due today and not yet overdue.
-3. **Starting to Matter** — unfinished, correctly configured Deadlines due tomorrow through seven calendar dates from today.
+3. **Closing In** — unfinished, correctly configured Actions and Deadlines due tomorrow through three calendar dates from today.
+4. **Starting to Matter** — unfinished, correctly configured Deadlines due on days four through seven from today.
+
+Closing In and Starting to Matter are separate because a single seven-day band flattens two
+different situations. Work due within three days needs attention now; work due later in the week
+only needs to be known about. Closing In covers both Actions and Deadlines, since a near Action is
+as pressing as a near Deadline. Starting to Matter stays Deadline-only: it is preparation time, and
+an Action four or more days out belongs in Upcoming.
 
 Sort each group by Due Date ascending, including time. There is no numerical priority score.
 
-Present them in one Gallery filtered to all three values, sorted by Due Date ascending. Use Medium
+Present them in one Gallery filtered to all four values, sorted by Due Date ascending. Use Medium
 Compact cards with no preview; show Name, Stack, Due Date, and Status. Combining them avoids the
-height and repeated headers of three separate Table views while preserving their urgency order.
+height and repeated headers of four separate Table views while preserving their urgency order.
 
 ### Upcoming
 
 Show unfinished, correctly configured work due in the next 14 days that does not already appear in Today:
 
-- Actions due tomorrow through day 14; and
+- Actions due on days 4 through 14; and
 - Deadlines due on days 8 through 14.
 
 Sort by Due Date ascending.
@@ -299,9 +306,10 @@ Database locking and the one-page relation limit are Notion UI settings unavaila
 3. Valid Side Quest → `Side Quest`
 4. Due Date before today → `Overdue`
 5. Due Date is today → `Due Today`
-6. Deadline due tomorrow through day 7 → `Starting to Matter`
-7. Action due tomorrow through day 14, or Deadline due on days 8–14 → `Upcoming`
-8. Anything else → blank
+6. Action or Deadline due tomorrow through day 3 → `Closing In`
+7. Deadline due on days 4–7 → `Starting to Matter`
+8. Action due on days 4–14, or Deadline due on days 8–14 → `Upcoming`
+9. Anything else → blank
 
 All date boundaries use calendar dates in the configured timezone. The formula does not use the current time of day.
 

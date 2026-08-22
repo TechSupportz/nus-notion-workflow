@@ -101,12 +101,13 @@ lets(
   if(taskType == "Side Quest", "Side Quest",
   if(days < 0, "Overdue",
   if(days == 0, "Due Today",
-  if(and(taskType == "Deadline", and(days >= 1, days <= 7)), "Starting to Matter",
+  if(and(days >= 1, days <= 3), "Closing In",
+  if(and(taskType == "Deadline", and(days >= 4, days <= 7)), "Starting to Matter",
   if(or(
-       and(taskType == "Action", and(days >= 1, days <= 14)),
+       and(taskType == "Action", and(days >= 4, days <= 14)),
        and(taskType == "Deadline", and(days >= 8, days <= 14))
      ), "Upcoming",
-  "")))))))
+  ""))))))))
 )
 ```
 
@@ -119,9 +120,14 @@ boundaries that ignore the time of day, and this is what delivers that.
 
 The branch order is the priority order in
 [DESIGN.md § Homepage Classification](DESIGN.md#homepage-classification). It matters: terminal
-Status wins over everything, `Needs Setup` is checked before any date logic, and the
-`Starting to Matter` test runs before `Upcoming` so a Deadline inside seven days lands in the right
-one.
+Status wins over everything, `Needs Setup` is checked before any date logic, `Closing In` runs
+before `Starting to Matter`, and both run before `Upcoming`, so each dated Task lands in exactly
+one band.
+
+The `Closing In` branch deliberately omits a Type test. Side Quests and malformed Tasks have already
+returned above it, so anything reaching that branch with `days` between 1 and 3 is a valid Action or
+Deadline. `Starting to Matter` still tests for `Deadline` because Actions on days 4–7 belong in
+`Upcoming`.
 
 ### Show in Completed
 
@@ -166,7 +172,11 @@ compatibility. Create one throwaway Task per branch and confirm each result:
 | Action due yesterday | `Overdue` |
 | Action due today | `Due Today` |
 | Timed Action due earlier or later today | `Due Today` |
+| Action due in 3 days | `Closing In` |
+| Deadline due in 3 days | `Closing In` |
+| Deadline due in 4 days | `Starting to Matter` |
 | Deadline due in 7 days | `Starting to Matter` |
+| Action due in 4 days | `Upcoming` |
 | Deadline due in 8 days | `Upcoming` |
 | Action due in 14 days | `Upcoming` |
 | Action due in 15 days | blank |
@@ -186,13 +196,13 @@ The working views are linked views of the Tasks database on the home page. Their
 | Section | Type | Filter | Sort | Visible properties |
 | --- | --- | --- | --- | --- |
 | Needs Setup | List | `Needs Setup` | Created Time ascending | Name, Type, Status, Due Date, Stack |
-| Today | Gallery | `Overdue` OR `Due Today` OR `Starting to Matter` | Due Date ascending | Name, Stack, Due Date, Status |
+| Today | Gallery | `Overdue` OR `Due Today` OR `Closing In` OR `Starting to Matter` | Due Date ascending | Name, Stack, Due Date, Status |
 | Upcoming | Gallery, grouped by Stack | `Upcoming` | Due Date ascending | Name, Stack, Due Date, Status |
 | Overdue (standalone) | Gallery | `Overdue` | Due Date ascending | Name, Stack, Due Date, Status |
 | Side Quests | List, grouped by Stack | `Side Quest` | Created Time ascending | Name, Status, Stack, Created Time |
 | Completed | Gallery | `Show in Completed = Completed` | Last Edited Time descending | Name, Stack, Due Date, Status |
 
-Today deliberately combines its three formula results into one Gallery. This keeps the decision
+Today deliberately combines its four formula results into one Gallery. This keeps the decision
 surface compact while retaining the urgency order through Due Date sorting. Do not create three
 separate Table views: they are much taller and do not match the intended dashboard.
 
