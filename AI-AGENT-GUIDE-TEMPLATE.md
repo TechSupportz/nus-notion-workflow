@@ -20,10 +20,26 @@ change. If they temporarily disagree, this live guide is the runtime authority.
 - **Tasks:** [open database](<tasks-database-url>) — `<tasks-data-source-uri>`
 - **Stacks:** [open database](<stacks-database-url>) — `<stacks-data-source-uri>`
 - **Changelog:** [open page](<changelog-page-url>)
+- **Grounding Facts:** [open page](<grounding-facts-page-url>)
 - **Timezone:** `<automation-timezone>`
 
 Fetch the relevant data source before every mutation. Use its current schema and exact property
 names rather than this cached reference.
+
+## Grounding Facts
+
+The Grounding Facts page carries the background this installation assumes: the academic calendar
+for the current academic year, the semester week map, university holidays, this semester's modules,
+the weekly class schedule, and the examination dates.
+
+Read it before resolving anything relative — "week 5", "after recess", "before my Thursday
+lecture" — instead of guessing or asking the user for a date the page already holds. It records
+facts: every entry is background, and work still lives only in Tasks.
+
+Canvas is authoritative for assessment deadlines; Grounding Facts is authoritative for class slots
+and calendar dates. When a source contradicts the page, correct the page as an explicit maintenance
+change with a Changelog entry, and say so when reporting. Re-derive the page from its linked
+sources at the start of each semester.
 
 ## Vocabulary
 

@@ -36,6 +36,9 @@ config::load() {
   source "$config_path"
 
   # Optional settings, defaulted here so `set -u` is safe downstream.
+  : "${NOTION_GROUNDING_FACTS_PAGE_ID:=}"
+  : "${GROUNDING_CALENDAR_URL:=}"
+  : "${GROUNDING_TIMETABLE_URL:=}"
   : "${CANVAS_INSTANCE_NAME:=}"
   : "${CANVAS_TERM_NAME_REGEX:=}"
   : "${CANVAS_SYNC_COURSE_IDS:=}"

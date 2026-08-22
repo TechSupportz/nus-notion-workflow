@@ -13,10 +13,25 @@
 NOTION_HOME_PAGE_ID=""
 NOTION_AGENT_GUIDE_PAGE_ID=""
 NOTION_CHANGELOG_PAGE_ID=""
+NOTION_GROUNDING_FACTS_PAGE_ID=""
 NOTION_TASKS_DATABASE_ID=""
 NOTION_TASKS_DATA_SOURCE_URI=""
 NOTION_STACKS_DATABASE_ID=""
 NOTION_STACKS_DATA_SOURCE_URI=""
+
+# --- Grounding Facts sources --------------------------------------------
+# The two links the Grounding Facts page is derived from. They are personal
+# (the timetable URL encodes your exact class selections), so they live here
+# rather than in the committed documentation. Whoever rebuilds the page at the
+# start of a semester reads them from here.
+
+# Your institution's academic calendar for the current academic year, e.g.
+#   "https://university.example.edu/registrar/calendar/ay2026-2027.pdf"
+GROUNDING_CALENDAR_URL=""
+
+# A timetable share URL carrying your enrolled modules and chosen classes, e.g.
+#   "https://nusmods.com/timetable/sem-1/share?CS1101S=LEC:1,TUT:07"
+GROUNDING_TIMETABLE_URL=""
 
 # --- Canvas -------------------------------------------------------------
 # Named instance configured via `canvas auth token set <name>` or

@@ -214,6 +214,23 @@ Show a compact alphabetical view of non-archived Stacks, plus direct links to th
 
 Archived Stacks remain accessible through the full Stacks database.
 
+## Grounding Facts
+
+Grounding Facts is a reference child page of the workspace home page. It carries the background the
+system assumes but deliberately does not model as Tasks: the academic calendar for the current
+academic year, the semester week map, university holidays, the modules taken this semester, the
+weekly class schedule, and the examination dates. Each section is derived from a linked
+authoritative source — the registrar's academic calendar and the user's NUSMods timetable share
+URL — so the page can be rebuilt rather than remembered.
+
+The page exists so agents resolve relative references ("week 5", "after recess", "before my
+Thursday lecture") from recorded fact instead of guessing or asking. It stores background; work
+lives only in Tasks.
+
+Precedence: Canvas is authoritative for assessment deadlines, Grounding Facts for class slots and
+calendar dates. Correcting the page is an explicit maintenance change and requires a Changelog
+entry. Re-derive the page from its sources at the start of each semester.
+
 ## Changelog
 
 The Changelog is an append-only child page of the workspace home page. It records concrete changes

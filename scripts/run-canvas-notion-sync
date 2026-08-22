@@ -84,6 +84,7 @@ fi
     --arg change_bundle_path "$BUNDLE" \
     --arg agent_guide_page_id "$NOTION_AGENT_GUIDE_PAGE_ID" \
     --arg changelog_page_id "$NOTION_CHANGELOG_PAGE_ID" \
+    --arg grounding_facts_page_id "$NOTION_GROUNDING_FACTS_PAGE_ID" \
     --arg tasks_data_source "$NOTION_TASKS_DATA_SOURCE_URI" \
     --arg stacks_data_source "$NOTION_STACKS_DATA_SOURCE_URI" \
     --arg timezone "$AUTOMATION_TIMEZONE" \
@@ -92,6 +93,7 @@ fi
       notion: {
         agent_guide_page_id: $agent_guide_page_id,
         changelog_page_id: $changelog_page_id,
+        grounding_facts_page_id: $grounding_facts_page_id,
         tasks_data_source: $tasks_data_source,
         stacks_data_source: $stacks_data_source
       },

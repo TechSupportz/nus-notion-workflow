@@ -84,7 +84,7 @@ Confirm with `canvas doctor`.
 
 **2. Build the Notion system.** Follow [NOTION-SETUP.md](NOTION-SETUP.md), which covers the Tasks
 and Stacks databases, their properties and relation, both formula properties, the homepage views,
-the AI Agent Guide page, and the append-only Changelog page. The guide marks the steps that still
+the AI Agent Guide page, the append-only Changelog page, and the Grounding Facts reference page. The guide marks the steps that still
 require the Notion UI when an agent assists with setup. Do not continue to configuration until the
 homepage passes the fetched-structure and visual completion checks in step 5.
 

@@ -159,9 +159,12 @@ cannot pin an IANA timezone. Set your Notion account timezone to match `AUTOMATI
 
 ### Verify it before trusting it
 
-These formulas were verified in one clean test installation on 2026-08-19. Notion's formula
-language can change, so repeat these checks for every new installation rather than assuming
-compatibility. Create one throwaway Task per branch and confirm each result:
+This matrix was last run in full against a clean test installation on 2026-08-19, before the
+`Closing In` band was split out of `Starting to Matter` on 2026-08-22. The `Closing In` rows and
+the revised `Starting to Matter` boundaries below have not been re-run since that change, so treat
+them as expected values rather than verified ones. Notion's formula language can change in any
+case, so run the whole matrix for every new installation rather than assuming compatibility.
+Create one throwaway Task per branch and confirm each result:
 
 | Test Task | Expected |
 | --- | --- |
@@ -203,7 +206,7 @@ The working views are linked views of the Tasks database on the home page. Their
 | Completed | Gallery | `Show in Completed = Completed` | Last Edited Time descending | Name, Stack, Due Date, Status |
 
 Today deliberately combines its four formula results into one Gallery. This keeps the decision
-surface compact while retaining the urgency order through Due Date sorting. Do not create three
+surface compact while retaining the urgency order through Due Date sorting. Do not create four
 separate Table views: they are much taller and do not match the intended dashboard.
 
 Overdue deliberately appears twice — inside Today as a decision surface, and standalone for focused
@@ -240,7 +243,11 @@ Arrange the homepage in this order. A description belongs directly below its hea
 linked view belongs directly below that description. The Stacks and Done linked views are nested
 inside their toggles.
 
-1. A callout directing agents to read the live AI Agent Guide before changing the system.
+1. A collapsed **For AI agents** toggle directing agents to read the live AI Agent Guide before
+   changing the system, and the Grounding Facts page before interpreting a week number, class time,
+   or calendar date. A toggle keeps agent instructions out of the human's way while a connector
+   fetch still returns its contents; a callout here costs the reader a coloured block they never
+   act on.
 2. A one-line description of the homepage.
 3. A callout explaining that the page is a decision surface, not a full task list.
 4. **Stacks** toggle: description, then the Active Stacks linked view.
@@ -254,7 +261,7 @@ inside their toggles.
 12. Divider.
 13. **Databases** or **Database shortcuts**: direct links to the full Tasks and Stacks databases,
     followed by the AI Agent Guide link.
-14. Divider, then the Changelog link.
+14. Divider, then the Changelog and Grounding Facts links.
 
 Create the headings and views in this same sequence when using the connector; each newly created
 view appends after the current last block. Use the Notion UI to nest the Stacks and Done views and
@@ -285,9 +292,9 @@ After every view check passes, delete the throwaway Tasks yourself in the UI. If
 the cleanup, explicitly authorise deletion of those exact test Tasks; otherwise set them to Yeeted
 and retain them. If a formula branch is wrong, fix it and repeat the checks before continuing.
 
-## 6. Create the AI Agent Guide and Changelog pages
+## 6. Create the AI Agent Guide, Changelog, and Grounding Facts pages
 
-Add two child pages of the home page.
+Add three child pages of the home page.
 
 **AI Agent Guide** — the runtime rulebook. Copy
 [AI-AGENT-GUIDE-TEMPLATE.md](AI-AGENT-GUIDE-TEMPLATE.md), replace every placeholder with this
@@ -298,11 +305,41 @@ new guide after creating it; from that point onward it is the authority for the 
 to-do list. The automation appends dated entries beneath `YYYY-MM-DD` headings and files every
 deletion it refused to perform under `Pending approval`.
 
+**Grounding Facts** — the background the system assumes and never stores as Tasks, so an agent
+resolves "week 5" or "before my Thursday lecture" from a recorded fact instead of guessing.
+[DESIGN.md § Grounding Facts](DESIGN.md#grounding-facts) specifies it. Build these sections:
+
+| Section | Content | Source |
+| --- | --- | --- |
+| Sources | The two source links, and which one wins a conflict | — |
+| Week map | Teaching weeks, recess, reading week, examinations, and vacation for the current semester, as dates | Academic calendar |
+| Next semester | The same periods for the following semester | Academic calendar |
+| University holidays | Every holiday in the academic year, with observed dates | Academic calendar |
+| Modules | Code, title, units, and faculty | NUSMods |
+| Weekly class schedule | Day, time, module, class number, venue, and teaching weeks per slot | NUSMods share URL |
+| Examinations | Date, time, and duration per module | NUSMods |
+| Keeping this page true | Maintenance rules: change it only on request, log it, re-derive each semester | — |
+
+Two links make the page reproducible: the registrar's academic calendar for the current academic
+year, and a timetable share URL carrying the user's exact class selections. Put both on the page and
+in `config.local.sh` as `GROUNDING_CALENDAR_URL` and `GROUNDING_TIMETABLE_URL`; the share URL
+encodes the user's enrolled modules and chosen classes, so it belongs in the gitignored config
+rather than in committed documentation. Decode the share URL into day, time, venue, and week-range
+rows; left as a link, the next agent has to decode it again, and guesses whenever the decoder is
+unavailable.
+
+Record the details agents get wrong: fortnightly classes, teaching weeks that start after week 1,
+and holidays that fall on class days.
+
+Link the page from the home page's **For AI agents** toggle and from the AI Agent Guide's
+**Locate the system** list. The [template](AI-AGENT-GUIDE-TEMPLATE.md) carries the wording for both.
+
 ## 7. Collect the identifiers
 
 Fill these into `config.local.sh`.
 
-**Page IDs** (`NOTION_HOME_PAGE_ID`, `NOTION_AGENT_GUIDE_PAGE_ID`, `NOTION_CHANGELOG_PAGE_ID`) are
+**Page IDs** (`NOTION_HOME_PAGE_ID`, `NOTION_AGENT_GUIDE_PAGE_ID`, `NOTION_CHANGELOG_PAGE_ID`,
+`NOTION_GROUNDING_FACTS_PAGE_ID`) are
 the 32 hex characters at the end of a Notion URL:
 
 ```
@@ -324,6 +361,11 @@ Fetch the Notion database at <url> and report its collection:// data source URI.
 The value looks like `collection://12345678-90ab-cdef-1234-567890abcdef`. The loader in
 `scripts/lib/config.sh` validates the shape, so a malformed paste fails immediately rather than
 mid-sync.
+
+**Grounding Facts sources** (`GROUNDING_CALENDAR_URL`, `GROUNDING_TIMETABLE_URL`) are the two links
+step 6 derived the page from. They are personal, so the gitignored config holds them and the
+committed documentation does not; the agent rebuilding the page each semester reads them from
+there.
 
 ## 8. Lock the databases
 
