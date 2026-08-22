@@ -44,7 +44,9 @@ config::load() {
   : "${CANVAS_SYNC_MAX_FILE_BYTES:=15728640}"
   : "${CANVAS_SYNC_MAX_EXTRACTED_BYTES:=500000}"
   : "${AUTOMATION_TIMEZONE:=}"
+  : "${AUTOMATION_SCHEDULER:=systemd}"
   : "${SYSTEMD_ON_CALENDAR:=}"
+  : "${CRON_SCHEDULE:=}"
 
   # Canvas CLI argument array, empty when no named instance is configured.
   CANVAS_INSTANCE_ARGS=()

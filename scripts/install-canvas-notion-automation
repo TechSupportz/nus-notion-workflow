@@ -10,132 +10,79 @@ REPO_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly REPO_DIR
 # shellcheck source=lib/config.sh
 source "$REPO_DIR/scripts/lib/config.sh"
+# shellcheck source=lib/schedule.sh
+source "$REPO_DIR/scripts/lib/schedule.sh"
 
-readonly UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
-readonly GENERATED_DIR="$REPO_DIR/automation"
+readonly SCHEDULERS=(systemd cron launchd agent)
+
+usage() {
+  cat <<'USAGE'
+Usage: install-canvas-notion-automation [--scheduler NAME]
+
+Installs the recurring Canvas-to-Notion sync using the scheduler named by
+AUTOMATION_SCHEDULER in config.local.sh, or by --scheduler.
+
+  systemd   systemd user timer (Linux). Persistent across downtime.
+  cron      an entry in your user crontab. Portable; no catch-up after downtime.
+  launchd   a user LaunchAgent (macOS). Runs missed jobs after wake.
+  agent     install nothing; print the job definition for an external
+            scheduler — an agent's own scheduled task, CI, or a human.
+
+systemd reads SYSTEMD_ON_CALENDAR; cron and launchd read CRON_SCHEDULE.
+Whatever the scheduler, the unit of work is scripts/run-canvas-notion-sync.
+USAGE
+}
+
+scheduler=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --scheduler)
+      [[ $# -ge 2 ]] || {
+        printf '%s: --scheduler needs a name\n' "${0##*/}" >&2
+        exit 64
+      }
+      scheduler=$2
+      shift 2
+      ;;
+    --scheduler=*)
+      scheduler=${1#--scheduler=}
+      shift
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      usage >&2
+      exit 64
+      ;;
+  esac
+done
 
 config::load
 
-# Note which binaries will be resolved from PATH rather than from an explicit
-# override, before config::need_bins fills them in.
-path_resolved=()
-[[ -n "$CANVAS_BIN" ]] || path_resolved+=(canvas)
-[[ -n "$JQ_BIN" ]] || path_resolved+=(jq)
-[[ -n "$CODEX_BIN" ]] || path_resolved+=(codex)
+[[ -n "$scheduler" ]] || scheduler="$AUTOMATION_SCHEDULER"
 
-config::need_bins canvas jq codex flock unzip strings systemctl systemd-analyze
+known=false
+for candidate in "${SCHEDULERS[@]}"; do
+  [[ "$scheduler" == "$candidate" ]] && known=true && break
+done
+"$known" || config::die \
+  "Unknown scheduler: '$scheduler'" \
+  "Set AUTOMATION_SCHEDULER in config.local.sh, or pass --scheduler, to one of:" \
+  "  ${SCHEDULERS[*]}"
+
+# Note which binaries will be resolved from PATH rather than from an explicit
+# override, before config::need_bins fills them in. A scheduler runs the job
+# with a PATH of its own, and the backends check these against it.
+PATH_RESOLVED_BINS=()
+[[ -n "$CANVAS_BIN" ]] || PATH_RESOLVED_BINS+=(canvas)
+[[ -n "$JQ_BIN" ]] || PATH_RESOLVED_BINS+=(jq)
+[[ -n "$CODEX_BIN" ]] || PATH_RESOLVED_BINS+=(codex)
+
+config::need_bins canvas jq codex flock unzip strings
 config::need_canvas
 config::need_notion
 
-# The installer resolves binaries from the interactive PATH, but the service
-# runs under the systemd user manager's PATH, which typically excludes
-# ~/.local/bin. Without this check the installer would report success for a
-# timer that cannot find codex at runtime.
-service_path="$(systemctl --user show-environment 2>/dev/null | sed -n 's/^PATH=//p' || true)"
-if [[ -n "$service_path" && ${#path_resolved[@]} -gt 0 ]]; then
-  unreachable=()
-  for command_name in "${path_resolved[@]}"; do
-    if ! PATH="$service_path" command -v -- "$command_name" >/dev/null 2>&1; then
-      unreachable+=("$command_name")
-    fi
-  done
-
-  if [[ ${#unreachable[@]} -gt 0 ]]; then
-    override_lines=""
-    for command_name in "${unreachable[@]}"; do
-      printf -v override_line '  %s_BIN="%s"\n' \
-        "$(printf '%s' "$command_name" | tr '[:lower:]' '[:upper:]')" \
-        "$(command -v -- "$command_name")"
-      override_lines+="$override_line"
-    done
-    config::die \
-      "These tools are on your interactive PATH but not on the systemd user" \
-      "manager's PATH, so the service would fail at runtime:" \
-      "  ${unreachable[*]}" \
-      "" \
-      "The systemd user PATH is:" \
-      "  $service_path" \
-      "" \
-      "Set absolute paths in config.local.sh, for example:" \
-      "$override_lines" \
-      "Nothing was installed."
-  fi
-fi
-
-[[ -n "$SYSTEMD_ON_CALENDAR" ]] ||
-  config::die "SYSTEMD_ON_CALENDAR is empty in config.local.sh."
-
-# systemd applies the timezone as a suffix on the calendar expression, so
-# AUTOMATION_TIMEZONE stays the single source of truth for both the schedule
-# and the changelog dates the model writes.
-readonly ON_CALENDAR="$SYSTEMD_ON_CALENDAR $AUTOMATION_TIMEZONE"
-
-# Reject values that cannot appear safely in a quoted unit-file value. Control
-# characters can inject directives, while double quotes and dollar signs can
-# break quoting or trigger systemd expansion.
-reject_control_chars() {
-  local label=$1 value=$2
-  if [[ "$value" == *[$'\n\r\t']* || "$value" == *[[:cntrl:]]* ||
-    "$value" == *'"'* || "$value" == *'$'* ]]; then
-    config::die \
-      "$label contains a control character, double quote, or dollar sign" \
-      "and cannot be written safely into a unit file."
-  fi
-}
-
-reject_control_chars "The repository path" "$REPO_DIR"
-reject_control_chars "SYSTEMD_ON_CALENDAR" "$ON_CALENDAR"
-
-# `%` introduces a systemd specifier; escape it so paths survive literally.
-# The `%` in the pattern must be backslash-escaped: bash reads a leading `%` in
-# a substitution pattern as the match-at-end anchor, which would append `%%`
-# to every value instead of escaping the percent signs inside it.
-escape_specifiers() {
-  printf '%s' "${1//\%/%%}"
-}
-
-# Render with bash parameter substitution rather than sed: no delimiter, no
-# ampersand, and no backslash has special meaning in the replacement.
-render_unit() {
-  local template=$1 output=$2 content
-  content="$(<"$template")"
-  content="${content//@REPO_DIR@/$(escape_specifiers "$REPO_DIR")}"
-  content="${content//@ON_CALENDAR@/$(escape_specifiers "$ON_CALENDAR")}"
-  printf '%s\n' "$content" >"$output"
-}
-
-systemd-analyze calendar -- "$ON_CALENDAR" >/dev/null 2>&1 ||
-  config::die \
-    "SYSTEMD_ON_CALENDAR is not a schedule systemd accepts:" \
-    "  '$ON_CALENDAR'" \
-    "Check it with: systemd-analyze calendar '$ON_CALENDAR'"
-
-render_unit \
-  "$GENERATED_DIR/canvas-notion-sync.service.in" \
-  "$GENERATED_DIR/canvas-notion-sync.service"
-render_unit \
-  "$GENERATED_DIR/canvas-notion-sync.timer.in" \
-  "$GENERATED_DIR/canvas-notion-sync.timer"
-
-# Verify before touching the installed units, so a bad render never replaces a
-# working installation.
-if ! systemd-analyze verify \
-  "$GENERATED_DIR/canvas-notion-sync.service" \
-  "$GENERATED_DIR/canvas-notion-sync.timer"; then
-  config::die \
-    "The generated units failed systemd-analyze verify; nothing was installed." \
-    "Inspect them in $GENERATED_DIR/."
-fi
-
-mkdir -p -- "$UNIT_DIR"
-install -m 0644 \
-  "$GENERATED_DIR/canvas-notion-sync.service" \
-  "$UNIT_DIR/canvas-notion-sync.service"
-install -m 0644 \
-  "$GENERATED_DIR/canvas-notion-sync.timer" \
-  "$UNIT_DIR/canvas-notion-sync.timer"
-
-systemctl --user daemon-reload
-systemctl --user enable --now canvas-notion-sync.timer
-
-printf 'Installed and enabled canvas-notion-sync.timer (%s).\n' "$ON_CALENDAR"
+# shellcheck source=/dev/null
+source "$REPO_DIR/scripts/schedulers/$scheduler.sh"

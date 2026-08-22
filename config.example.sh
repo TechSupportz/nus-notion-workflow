@@ -43,11 +43,34 @@ CANVAS_SYNC_COURSE_IDS=""
 # IANA timezone used for changelog dates and all Due Date boundaries.
 AUTOMATION_TIMEZONE="Etc/UTC"
 
-# systemd OnCalendar expression for the sync timer. Do not append a timezone —
-# the installer adds AUTOMATION_TIMEZONE automatically, so it is configured in
+# How the recurring sync is scheduled. The unit of work is always
+# scripts/run-canvas-notion-sync; this only chooses what starts it.
+#
+#   systemd   systemd user timer (Linux). Catches up after downtime.
+#   cron      an entry in your user crontab. Portable; no catch-up.
+#   launchd   a user LaunchAgent (macOS). Runs missed jobs after wake.
+#   agent     install nothing. `scripts/install-canvas-notion-automation`
+#             validates the configuration and prints the job definition for
+#             an external scheduler — an agent's own scheduled task (Claude
+#             Code, Codex), CI, or a human running it by hand.
+#
+# Override for one run with: scripts/install-canvas-notion-automation --scheduler NAME
+AUTOMATION_SCHEDULER="systemd"
+
+# Schedule for AUTOMATION_SCHEDULER="systemd". Do not append a timezone — the
+# installer adds AUTOMATION_TIMEZONE automatically, so it is configured in
 # exactly one place. Validate with:
 #   systemd-analyze calendar "*-*-* 06,09,12,23:00:00 Etc/UTC"
 SYSTEMD_ON_CALENDAR="*-*-* 06,09,12,23:00:00"
+
+# Schedule for AUTOMATION_SCHEDULER="cron" and "launchd", in five-field cron
+# syntax, and the schedule reported by the "agent" scheduler. Use numbers only:
+# launchd cannot express ranges or steps, so write values out as lists.
+#
+# cron on Linux honours the timezone via CRON_TZ; macOS cron and launchd
+# schedule in system local time, which the installer warns about when it
+# differs from AUTOMATION_TIMEZONE.
+CRON_SCHEDULE="0 6,9,12,23 * * *"
 
 # --- Binaries and model -------------------------------------------------
 # Leave blank to resolve from PATH. Set an absolute path only when a tool is

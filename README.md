@@ -1,6 +1,6 @@
 # notion-workflow
 
-A low-maintenance work-management system built in Notion, plus a systemd timer that keeps it in
+A low-maintenance work-management system built in Notion, plus a scheduled job that keeps it in
 sync with [Canvas LMS](https://www.instructure.com/canvas).
 
 Everything actionable becomes a **Task** (an Action, a Deadline, or a Side Quest), optionally
@@ -35,12 +35,27 @@ can create those view types, but the Compact card controls in Notion still requi
 
 ## Supported platform
 
-**Linux with Bash and systemd user services.** The scheduler is a systemd user timer and the runner
-uses `flock`.
+**Linux with Bash 4+.** The scripts assume GNU userland behaviour and the runner uses `flock`.
 
-The scripts use GNU userland behaviour and may run manually on other Unix-like systems when
-compatible GNU tools are installed. There is no launchd equivalent for macOS scheduling and none
-is planned.
+Scheduling, though, is your choice. The unit of work is a single command —
+`scripts/run-canvas-notion-sync` — and `AUTOMATION_SCHEDULER` in `config.local.sh` decides what
+starts it:
+
+| `AUTOMATION_SCHEDULER` | What the installer does | Schedule read from |
+| --- | --- | --- |
+| `systemd` | Installs and enables a systemd **user timer**. Catches up after downtime (`Persistent=true`). | `SYSTEMD_ON_CALENDAR` |
+| `cron` | Maintains one marked block in your **user crontab**. Portable; no catch-up after downtime. | `CRON_SCHEDULE` |
+| `launchd` | Installs a user **LaunchAgent** (macOS). Runs missed jobs after wake. | `CRON_SCHEDULE` |
+| `agent` | Installs nothing. Validates the configuration and prints the job definition for an **external scheduler** — an agent's own scheduled task (Claude Code, Codex), CI, or you, by hand. | reports `CRON_SCHEDULE` |
+
+Every backend installs the same job and refuses to install one that would fail at runtime, checking
+that the tools it needs are reachable from the PATH that scheduler will actually use.
+
+macOS therefore works for scheduling via `launchd`, `cron`, or `agent`, provided Bash 4+, `flock`,
+and the other GNU tools are installed (`brew install bash flock coreutils binutils`) and reachable —
+note that `#!/usr/bin/env bash` finds the system Bash 3.2 first unless Homebrew's `bin` precedes
+`/bin` on your PATH. `launchd` and macOS `cron` schedule in the machine's local timezone rather than
+`AUTOMATION_TIMEZONE`; the installer warns when the two differ.
 
 ## Prerequisites
 
@@ -50,7 +65,7 @@ is planned.
 | `strings` (binutils) | Best-effort text extraction from PDFs |
 | [`canvas`](https://github.com/jjuanrivvera/canvas-cli) | All Canvas reads |
 | [`codex`](https://developers.openai.com/codex/cli) | Runs the sync agent |
-| `systemd` | Scheduling |
+| a scheduler | `systemd`, `cron`, `launchd`, or one you drive yourself — see [Supported platform](#supported-platform) |
 
 The official **Notion plugin for Codex** must be installed and connected, because the sync agent
 reaches Notion through it. Verify it works in an interactive Codex session before enabling the
@@ -104,22 +119,38 @@ the first real run syncs only genuine changes rather than your entire course his
 scripts/run-canvas-notion-sync --baseline-only
 ```
 
-**7. Install the timer.** This renders the unit templates from your config, validates them with
-`systemd-analyze verify`, and enables the timer:
+**7. Install the schedule.** Set `AUTOMATION_SCHEDULER` and the matching schedule setting in
+`config.local.sh` first, then:
 
 ```bash
 scripts/install-canvas-notion-automation
 ```
 
+It validates the whole configuration, renders whatever the chosen scheduler needs, verifies it, and
+installs it — printing the run, status, log, and removal commands for that scheduler. To try a
+different backend without editing the config:
+
+```bash
+scripts/install-canvas-notion-automation --scheduler cron
+```
+
+With `AUTOMATION_SCHEDULER="agent"` nothing is installed: the command prints the command, working
+directory, schedule, timezone, and PATH for an agent or another scheduler to register, along with
+what that scheduler needs to know about retries and timeouts.
+
 ## Operation
 
-Run a sync immediately:
+Whatever the scheduler, a sync can always be run directly:
+
+```bash
+scripts/run-canvas-notion-sync
+```
+
+Under `systemd`, run one immediately and check the schedule and recent logs with:
 
 ```bash
 systemctl --user start canvas-notion-sync.service
 ```
-
-Check schedule and recent logs:
 
 ```bash
 systemctl --user status canvas-notion-sync.timer
@@ -128,6 +159,9 @@ systemctl --user status canvas-notion-sync.timer
 ```bash
 journalctl --user -u canvas-notion-sync.service -n 100
 ```
+
+The `cron` and `launchd` backends write their output to `cron.log` and `launchd.log` in
+`CANVAS_SYNC_STATE_DIR`; the installer prints their status and removal commands when it finishes.
 
 A run that fails, partially completes, or cannot verify its changelog entry **does not advance the
 baseline**, so the next run retries the same diff idempotently.
@@ -144,10 +178,15 @@ empty one. The error lists every active enrolment with its term name; adjust
 and `codex` have config overrides (`CANVAS_BIN`, `JQ_BIN`, `CODEX_BIN`); everything else must be on
 `PATH`.
 
-**"…not on the systemd user manager's PATH"** — the service does not set `PATH` explicitly, and the
-systemd user manager typically excludes `~/.local/bin`, where `codex` often lives. The installer
-checks this up front and refuses to install rather than enabling a timer that would fail at runtime;
-set an absolute `CODEX_BIN` in `config.local.sh` as the error instructs.
+**"…not on the systemd user manager's PATH"**, or the same complaint about a crontab or LaunchAgent
+PATH — schedulers run jobs with a PATH of their own, typically excluding `~/.local/bin`, where
+`codex` often lives. The installer checks this up front and refuses to install rather than enabling
+a job that would fail at runtime; set an absolute `CODEX_BIN` in `config.local.sh` as the error
+instructs.
+
+**"launchd cannot express the … field"** — `StartCalendarInterval` matches fixed values, so
+`CRON_SCHEDULE` cannot use ranges or steps under `launchd`. Write the values out: `0 6,9,12,23 * * *`
+rather than `0 6-23/3 * * *`.
 
 **The agent reports `error` every run** — check that the Notion Codex plugin is still connected. Its
 authorization cannot be renewed from a headless run.

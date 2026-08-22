@@ -25,6 +25,14 @@ If `config.local.sh` is absent, this is an unconfigured clone. Follow [README.md
 complete only after every required value has been copied into a mode-`0600` `config.local.sh` and
 the Notion entities can be fetched through the configured identifiers.
 
+`AUTOMATION_SCHEDULER` in the same file decides what starts the recurring sync — `systemd`, `cron`,
+`launchd`, or `agent`. Treat it as the user's choice: install with
+`scripts/install-canvas-notion-automation` (add `--scheduler NAME` only when the user asks for a
+different backend), and never install a scheduler the configuration does not name. `agent` means the
+user schedules the job elsewhere, including through your own scheduled tasks; in that mode the
+installer only validates the configuration and prints the job definition, and registering it is a
+change to the user's machine or account, so confirm before doing it.
+
 If `AGENTS.local.md` exists, read it as well. It carries course-specific interpretation notes that
 this repository deliberately does not publish.
 

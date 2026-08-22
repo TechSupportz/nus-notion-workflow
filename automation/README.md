@@ -1,7 +1,8 @@
 # Canvas → Notion automation
 
-A systemd user timer checks the current academic-term Canvas courses on the schedule set by
-`SYSTEMD_ON_CALENDAR` and `AUTOMATION_TIMEZONE` in `config.local.sh`.
+A scheduled job checks the current academic-term Canvas courses on the schedule set in
+`config.local.sh`. What starts it is a choice — see [Scheduling](#scheduling) — but the job itself
+is always `scripts/run-canvas-notion-sync`, and nothing below depends on which scheduler runs it.
 
 `scripts/canvas-snapshot` performs read-only Canvas CLI calls and normalizes assignments, quizzes,
 announcements, modules, pages, files, and discussions for every current subject. Announcements are
@@ -40,7 +41,33 @@ not advance the baseline, so the next timer run retries idempotently.
 The official Notion Codex plugin must be installed and connected for headless
 runs; the installer does not alter its permissions.
 
-Useful commands:
+## Scheduling
+
+`AUTOMATION_SCHEDULER` selects a backend in `scripts/schedulers/`; the installer validates the whole
+configuration, then sources that one file.
+
+| Backend | Installs | Schedule from | Notes |
+| --- | --- | --- | --- |
+| `systemd.sh` | `~/.config/systemd/user/canvas-notion-sync.{service,timer}`, rendered from the `.in` templates here and checked with `systemd-analyze verify` | `SYSTEMD_ON_CALENDAR` + `AUTOMATION_TIMEZONE` | `Persistent=true`, so downtime is caught up. Logs to the journal. |
+| `cron.sh` | one marked block in the user crontab, rewritten in place on re-install so hand-written entries survive | `CRON_SCHEDULE` | `CRON_TZ` on Linux; macOS cron ignores it and the installer warns. Logs to `cron.log` in the state directory. |
+| `launchd.sh` | `~/Library/LaunchAgents/com.notion-workflow.canvas-notion-sync.plist`, linted with `plutil` and bootstrapped into `gui/$UID` | `CRON_SCHEDULE`, converted to `StartCalendarInterval` | Fixed values only — no ranges or steps. Local system time; warns on a mismatch with `AUTOMATION_TIMEZONE`. Logs to `launchd.log`. |
+| `agent.sh` | nothing | reports `CRON_SCHEDULE` | Prints the command, directory, schedule, timezone, and PATH for an external scheduler — an agent's scheduled task, CI, or a person. |
+
+Each backend refuses to install a job whose tools would be missing at runtime, comparing the PATH
+that scheduler will use against the binaries resolved at install time; the error names the
+`*_BIN` overrides that would fix it.
+
+Install or re-install with the configured backend, or override it for one run:
+
+```bash
+scripts/install-canvas-notion-automation
+```
+
+```bash
+scripts/install-canvas-notion-automation --scheduler launchd
+```
+
+Under systemd:
 
 ```bash
 systemctl --user status canvas-notion-sync.timer
@@ -54,10 +81,10 @@ systemctl --user start canvas-notion-sync.service
 journalctl --user -u canvas-notion-sync.service -n 100
 ```
 
-Render the unit templates from `config.local.sh`, verify them, and install:
+Under any scheduler, a run can be started directly:
 
 ```bash
-scripts/install-canvas-notion-automation
+scripts/run-canvas-notion-sync
 ```
 
 To establish or deliberately refresh the Canvas baseline without changing
